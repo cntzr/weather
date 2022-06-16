@@ -1,4 +1,4 @@
-module github.com/cntzr/weather
+module weather
 
 go 1.18
 
