@@ -1,7 +1,7 @@
 package main
 
 import (
-	"weather"
+	"github.com/cntzr/weather"
 )
 
 func main() {
