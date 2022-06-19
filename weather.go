@@ -19,7 +19,7 @@ type (
 
 	Conditions struct {
 		Summary     string
-		Temperature Temperature
+		Temperature float64
 	}
 
 	Coordinates struct {
@@ -28,11 +28,11 @@ type (
 	}
 
 	WeatherResponse struct {
-		Weather []struct {
-			Main string
-		}
-		Main struct {
-			Temp Temperature
+		Current struct {
+			Weather []struct {
+				Description string
+			}
+			Temp float64
 		}
 	}
 
@@ -40,8 +40,6 @@ type (
 		Lon float64
 		Lat float64
 	}
-
-	Temperature float64
 )
 
 func RunCLI() {
@@ -58,12 +56,17 @@ func RunCLI() {
 
 	location := GetLocation(os.Args)
 	c := NewClient(key)
-	conditions, err := c.GetWeather(location)
+	coordinates, err := c.GetCoordinates(location)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Printf("%s - %.1f °C\n", conditions.Summary, conditions.Temperature.Celsius())
+	conditions, err := c.GetWeather(coordinates)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Printf("%s - %.1f °C\n", conditions.Summary, conditions.Temperature)
 }
 
 func GetLocation(args []string) string {
@@ -72,7 +75,12 @@ func GetLocation(args []string) string {
 
 func Get(location, key string) (Conditions, error) {
 	c := NewClient(key)
-	conditions, err := c.GetWeather(location)
+	coordinates, err := c.GetCoordinates(location)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	conditions, err := c.GetWeather(coordinates)
 	if err != nil {
 		return Conditions{}, err
 	}
@@ -95,12 +103,12 @@ func ParseWeatherResponse(data []byte) (Conditions, error) {
 	if err != nil {
 		return Conditions{}, fmt.Errorf("invalid API response %s: %w", data, err)
 	}
-	if len(resp.Weather) < 1 {
+	if len(resp.Current.Weather) < 1 {
 		return Conditions{}, fmt.Errorf("invalid API response %s: want at least one Weather element", data)
 	}
 	conditions := Conditions{
-		Summary:     resp.Weather[0].Main,
-		Temperature: resp.Main.Temp,
+		Summary:     resp.Current.Weather[0].Description,
+		Temperature: resp.Current.Temp,
 	}
 	return conditions, nil
 }
@@ -121,21 +129,16 @@ func ParseGeoResponse(data []byte) (Coordinates, error) {
 	return coordinates, nil
 }
 
-func (t Temperature) Celsius() float64 {
-	return float64(t) - 273.15
-}
-
-func (c *Client) FormatWeatherURL(location string) string {
-	// TODO ... beim Refactoring unit=metric und lang=de einbauen
-	return fmt.Sprintf("%s/data/2.5/weather?q=%s&appid=%s", c.BaseURL, location, c.APIKey)
+func (c *Client) FormatWeatherURL(coordinates Coordinates) string {
+	return fmt.Sprintf("%s/data/3.0/onecall?lat=%g&lon=%g&units=metric&lang=de&appid=%s", c.BaseURL, coordinates.Lat, coordinates.Lon, c.APIKey)
 }
 
 func (c *Client) FormatGeoURL(location string) string {
 	return fmt.Sprintf("%s/geo/1.0/direct?q=%s&limit=1&appid=%s", c.BaseURL, location, c.APIKey)
 }
 
-func (c *Client) GetWeather(location string) (Conditions, error) {
-	URL := c.FormatWeatherURL(location)
+func (c *Client) GetWeather(coordinates Coordinates) (Conditions, error) {
+	URL := c.FormatWeatherURL(coordinates)
 	resp, err := c.HTTPClient.Get(URL)
 	if err != nil {
 		return Conditions{}, err

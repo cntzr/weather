@@ -14,13 +14,13 @@ import (
 
 func TestParseWeatherResponse(t *testing.T) {
 	t.Parallel()
-	data, err := os.ReadFile("testdata/weather_25.json")
+	data, err := os.ReadFile("testdata/weather_30.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := weather.Conditions{
-		Summary:     "Clear",
-		Temperature: 290.8,
+		Summary:     "Leichter Regen",
+		Temperature: 31.38,
 	}
 	got, err := weather.ParseWeatherResponse(data)
 	if err != nil {
@@ -33,7 +33,7 @@ func TestParseWeatherResponse(t *testing.T) {
 
 func TestParseWeatherResponseEmpty(t *testing.T) {
 	t.Parallel()
-	data, err := os.ReadFile("testdata/weather_25_invalid.json")
+	data, err := os.ReadFile("testdata/weather_30_invalid.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +50,8 @@ func TestParseGeoResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := weather.Coordinates{
-		Lat: 50.685109,
-		Lon: 7.1536622,
+		Lat: 55.123456,
+		Lon: 3.7654321,
 	}
 	got, err := weather.ParseGeoResponse(data)
 	if err != nil {
@@ -77,9 +77,12 @@ func TestParseGeoResponseEmpty(t *testing.T) {
 func TestFormatWeatherURL(t *testing.T) {
 	t.Parallel()
 	c := weather.NewClient("dummyAPIKey")
-	location := "Paris,FR"
-	want := "https://api.openweathermap.org/data/2.5/weather?q=Paris,FR&appid=dummyAPIKey"
-	got := c.FormatWeatherURL(location)
+	coordinates := weather.Coordinates{
+		Lat: 55.123456,
+		Lon: 3.7654321,
+	}
+	want := "https://api.openweathermap.org/data/3.0/onecall?lat=55.123456&lon=3.7654321&units=metric&lang=de&appid=dummyAPIKey"
+	got := c.FormatWeatherURL(coordinates)
 	if !cmp.Equal(want, got) {
 		t.Error(cmp.Diff(want, got))
 	}
@@ -131,7 +134,7 @@ func TestGetWeather(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewTLSServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			f, err := os.Open("testdata/weather_25.json")
+			f, err := os.Open("testdata/weather_30.json")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,23 +146,14 @@ func TestGetWeather(t *testing.T) {
 	c.BaseURL = ts.URL
 	c.HTTPClient = ts.Client()
 	want := weather.Conditions{
-		Summary:     "Clear",
-		Temperature: 290.8,
+		Summary:     "Leichter Regen",
+		Temperature: 31.38,
 	}
-	got, err := c.GetWeather("Paris,FR")
+	coordinates := weather.Coordinates{Lat: 1.0, Lon: 2.0}
+	got, err := c.GetWeather(coordinates)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cmp.Equal(want, got) {
-		t.Error(cmp.Diff(want, got))
-	}
-}
-
-func TestCelsius(t *testing.T) {
-	t.Parallel()
-	input := weather.Temperature(274.15)
-	want := 1.0
-	got := input.Celsius()
 	if !cmp.Equal(want, got) {
 		t.Error(cmp.Diff(want, got))
 	}
@@ -181,8 +175,8 @@ func TestGetCoordinates(t *testing.T) {
 	c.BaseURL = ts.URL
 	c.HTTPClient = ts.Client()
 	want := weather.Coordinates{
-		Lat: 50.685109,
-		Lon: 7.1536622,
+		Lat: 55.123456,
+		Lon: 3.7654321,
 	}
 	got, err := c.GetCoordinates("Paris,FR")
 	if err != nil {
