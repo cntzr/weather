@@ -22,13 +22,23 @@ type (
 		Temperature Temperature
 	}
 
-	OWMResponse struct {
+	Coordinates struct {
+		Lon float64
+		Lat float64
+	}
+
+	WeatherResponse struct {
 		Weather []struct {
 			Main string
 		}
 		Main struct {
 			Temp Temperature
 		}
+	}
+
+	GeoResponse []struct {
+		Lon float64
+		Lat float64
 	}
 
 	Temperature float64
@@ -79,14 +89,14 @@ func NewClient(apiKey string) *Client {
 	}
 }
 
-func ParseResponse(data []byte) (Conditions, error) {
-	var resp OWMResponse
+func ParseWeatherResponse(data []byte) (Conditions, error) {
+	var resp WeatherResponse
 	err := json.Unmarshal(data, &resp)
 	if err != nil {
 		return Conditions{}, fmt.Errorf("invalid API response %s: %w", data, err)
 	}
 	if len(resp.Weather) < 1 {
-		return Conditions{}, fmt.Errorf("invalid API response %s: want at lest one Weather element", data)
+		return Conditions{}, fmt.Errorf("invalid API response %s: want at least one Weather element", data)
 	}
 	conditions := Conditions{
 		Summary:     resp.Weather[0].Main,
@@ -95,16 +105,37 @@ func ParseResponse(data []byte) (Conditions, error) {
 	return conditions, nil
 }
 
+func ParseGeoResponse(data []byte) (Coordinates, error) {
+	var resp GeoResponse
+	err := json.Unmarshal(data, &resp)
+	if err != nil {
+		return Coordinates{}, fmt.Errorf("invalid API response %s: %w", data, err)
+	}
+	if len(resp) < 1 {
+		return Coordinates{}, fmt.Errorf("invalid API response %s: want at least one set of coordinates", data)
+	}
+	coordinates := Coordinates{
+		Lat: resp[0].Lat,
+		Lon: resp[0].Lon,
+	}
+	return coordinates, nil
+}
+
 func (t Temperature) Celsius() float64 {
 	return float64(t) - 273.15
 }
 
-func (c *Client) FormatURL(location string) string {
+func (c *Client) FormatWeatherURL(location string) string {
+	// TODO ... beim Refactoring unit=metric und lang=de einbauen
 	return fmt.Sprintf("%s/data/2.5/weather?q=%s&appid=%s", c.BaseURL, location, c.APIKey)
 }
 
+func (c *Client) FormatGeoURL(location string) string {
+	return fmt.Sprintf("%s/geo/1.0/direct?q=%s&limit=1&appid=%s", c.BaseURL, location, c.APIKey)
+}
+
 func (c *Client) GetWeather(location string) (Conditions, error) {
-	URL := c.FormatURL(location)
+	URL := c.FormatWeatherURL(location)
 	resp, err := c.HTTPClient.Get(URL)
 	if err != nil {
 		return Conditions{}, err
@@ -117,9 +148,30 @@ func (c *Client) GetWeather(location string) (Conditions, error) {
 	if err != nil {
 		return Conditions{}, err
 	}
-	conditions, err := ParseResponse(data)
+	conditions, err := ParseWeatherResponse(data)
 	if err != nil {
 		return Conditions{}, err
 	}
 	return conditions, nil
+}
+
+func (c *Client) GetCoordinates(location string) (Coordinates, error) {
+	URL := c.FormatGeoURL(location)
+	resp, err := c.HTTPClient.Get(URL)
+	if err != nil {
+		return Coordinates{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return Coordinates{}, fmt.Errorf("unexptected response status %q", resp.Status)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Coordinates{}, err
+	}
+	coordinates, err := ParseGeoResponse(data)
+	if err != nil {
+		return Coordinates{}, err
+	}
+	return coordinates, nil
 }

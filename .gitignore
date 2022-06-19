@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+wetter
 
 # Test binary, built with `go test -c`
 *.test
@@ -15,3 +16,6 @@
 # vendor/
 
 dist/
+
+# API calls
+api.calls
