@@ -12,17 +12,27 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestParseWeatherResponse(t *testing.T) {
+func TestConditionsFromParseWeatherResponse(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile("testdata/weather_30.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := weather.Conditions{
-		Summary:     "Leichter Regen",
-		Temperature: 31.38,
+		Summary:       "Leichter Regen",
+		Temperature:   31.38,
+		Timestamp:     "17.06.2022 17:23 CEST",
+		Sunrise:       "05:18",
+		Sunset:        "21:46",
+		FeelsLike:     29.86,
+		DewPoint:      10.15,
+		Pressure:      1021,
+		Humidity:      27,
+		WindSpeed:     2.3,
+		WindGust:      3.32,
+		WindDirection: 233,
 	}
-	got, err := weather.ParseWeatherResponse(data)
+	got, _, err := weather.ParseWeatherResponse(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,13 +41,48 @@ func TestParseWeatherResponse(t *testing.T) {
 	}
 }
 
-func TestParseWeatherResponseEmpty(t *testing.T) {
+func TestDailyForecastFromParseWeatherResponse(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile("testdata/weather_30.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := weather.ForecastDaily{
+		Timestamp: "17.06.2022",
+		Moonrise:  "00:24",
+		Moonset:   "08:14",
+		Moonphase: 0.62,
+	}
+	_, fc, err := weather.ParseWeatherResponse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// we are looking only for the first set of moon data to improve the current conditions
+	got := fc.Daily[0]
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestForecastFromParseWeatherResponseEmpty(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile("testdata/geo_service_invalid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = weather.ParseGeoResponse(data)
+	if err == nil {
+		t.Fatal("want error parsing invalid response, but got nil")
+	}
+}
+
+func TestConditionsFromParseWeatherResponseEmpty(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile("testdata/weather_30_invalid.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = weather.ParseWeatherResponse(data)
+	_, _, err = weather.ParseWeatherResponse(data)
 	if err == nil {
 		t.Fatal("want error parsing invalid response, but got nil")
 	}
@@ -101,11 +146,21 @@ func TestFormatGeoURL(t *testing.T) {
 
 func TestLocationWithSpace(t *testing.T) {
 	t.Parallel()
-	location := []string{"HIDDEN", "What", "a", "long", "Place"}
+	params := []string{"HIDDEN", "HIDDEN", "What", "a", "long", "Place"}
 	want := "What+a+long+Place"
-	got := weather.GetLocation(location)
+	got := weather.GetLocation(params)
 	if !cmp.Equal(want, got) {
 		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestFunctionalParameter(t *testing.T) {
+	t.Parallel()
+	params := []string{"HIDDEN", "doit", "HIDDEN", "HIDDEN"}
+	want := "doit"
+	got := weather.GetFunction(params)
+	if want != got {
+		t.Errorf("want %s, got %s", want, got)
 	}
 }
 
@@ -130,7 +185,7 @@ func TestSimpleHTTPS(t *testing.T) {
 	}
 }
 
-func TestGetWeather(t *testing.T) {
+func TestConditionsFromGetWeather(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewTLSServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -146,14 +201,57 @@ func TestGetWeather(t *testing.T) {
 	c.BaseURL = ts.URL
 	c.HTTPClient = ts.Client()
 	want := weather.Conditions{
-		Summary:     "Leichter Regen",
-		Temperature: 31.38,
+		Summary:       "Leichter Regen",
+		Temperature:   31.38,
+		Timestamp:     "17.06.2022 17:23 CEST",
+		Sunrise:       "05:18",
+		Sunset:        "21:46",
+		FeelsLike:     29.86,
+		DewPoint:      10.15,
+		Pressure:      1021,
+		Humidity:      27,
+		WindSpeed:     2.3,
+		WindGust:      3.32,
+		WindDirection: 233,
 	}
 	coordinates := weather.Coordinates{Lat: 1.0, Lon: 2.0}
-	got, err := c.GetWeather(coordinates)
+	got, _, err := c.GetWeather(coordinates)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestForecastFromGetWeather(t *testing.T) {
+	t.Parallel()
+	ts := httptest.NewTLSServer(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			f, err := os.Open("testdata/weather_30.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			io.Copy(w, f)
+		}))
+	defer ts.Close()
+	c := weather.NewClient("dummyAPIKey")
+	c.BaseURL = ts.URL
+	c.HTTPClient = ts.Client()
+	want := weather.ForecastDaily{
+		Timestamp: "17.06.2022",
+		Moonrise:  "00:24",
+		Moonset:   "08:14",
+		Moonphase: 0.62,
+	}
+	coordinates := weather.Coordinates{Lat: 1.0, Lon: 2.0}
+	_, fc, err := c.GetWeather(coordinates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// we are looking only for the first set of moon data to improve the current conditions
+	got := fc.Daily[0]
 	if !cmp.Equal(want, got) {
 		t.Error(cmp.Diff(want, got))
 	}
@@ -182,6 +280,36 @@ func TestGetCoordinates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestGetTimestamp(t *testing.T) {
+	t.Parallel()
+	// TODO Testserie mit verschiedenen Ausgaben aufbauen
+	want := "17.06.2022 17:23 CEST"
+	got := weather.GetTimestamp(1655479384, "02.01.2006 15:04 MST")
+	if want != got {
+		t.Errorf("want %s, got %s", want, got)
+	}
+}
+
+func TestSpeedInKilometres(t *testing.T) {
+	t.Parallel()
+	input := weather.Speed(10.0)
+	want := 36.0
+	got := input.KmPerHour()
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestDirection(t *testing.T) {
+	t.Parallel()
+	input := weather.Direction(190.0)
+	want := "S"
+	got := input.Direction()
 	if !cmp.Equal(want, got) {
 		t.Error(cmp.Diff(want, got))
 	}
