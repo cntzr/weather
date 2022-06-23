@@ -370,7 +370,7 @@ func PrintForecast(f Forecast, offset int) error {
 	fmt.Printf("Vorhersage für %s\n", f.Daily[offset].Day)
 	fmt.Println("-----------------------------------------------------")
 	fmt.Println("Temperaturen ...")
-	fmt.Printf("... min. %.0f °C, max. %.0f °C\n",
+	fmt.Printf("... zwischen %.0f °C und %.0f °C\n",
 		f.Daily[offset].Temp.Min,
 		f.Daily[offset].Temp.Max)
 	fmt.Printf("... morgens %.0f °C, mittags %.0f °C, abends %.0f °C und nachts %.0f °C.\n",
