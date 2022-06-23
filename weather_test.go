@@ -48,10 +48,19 @@ func TestDailyForecastFromParseWeatherResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := weather.ForecastDaily{
-		Timestamp: "17.06.2022",
+		Day:       "17.06.2022",
 		Moonrise:  "00:24",
 		Moonset:   "08:14",
 		Moonphase: 0.62,
+		Temp: weather.DailyTempBenchmarks{
+			Max:     31.38,
+			Min:     13.58,
+			Morning: 15.53,
+			Day:     28.02,
+			Evening: 30.18,
+			Night:   20.39,
+		},
+		Alerts: []weather.Alert{},
 	}
 	_, fc, err := weather.ParseWeatherResponse(data)
 	if err != nil {
@@ -224,7 +233,38 @@ func TestConditionsFromGetWeather(t *testing.T) {
 	}
 }
 
-func TestForecastFromGetWeather(t *testing.T) {
+func TestForecastHourlyFromGetWeather(t *testing.T) {
+	t.Parallel()
+	ts := httptest.NewTLSServer(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			f, err := os.Open("testdata/weather_30.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			io.Copy(w, f)
+		}))
+	defer ts.Close()
+	c := weather.NewClient("dummyAPIKey")
+	c.BaseURL = ts.URL
+	c.HTTPClient = ts.Client()
+	want := weather.ForecastHourly{
+		Day:         "17.06.2022",
+		Hour:        "17:00",
+		Temperature: 31.38,
+	}
+	coordinates := weather.Coordinates{Lat: 1.0, Lon: 2.0}
+	_, fc, err := c.GetWeather(coordinates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := fc.Hourly[0]
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestForecastDailyFromGetWeather(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewTLSServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,10 +280,19 @@ func TestForecastFromGetWeather(t *testing.T) {
 	c.BaseURL = ts.URL
 	c.HTTPClient = ts.Client()
 	want := weather.ForecastDaily{
-		Timestamp: "17.06.2022",
+		Day:       "17.06.2022",
 		Moonrise:  "00:24",
 		Moonset:   "08:14",
 		Moonphase: 0.62,
+		Temp: weather.DailyTempBenchmarks{
+			Max:     31.38,
+			Min:     13.58,
+			Morning: 15.53,
+			Day:     28.02,
+			Evening: 30.18,
+			Night:   20.39,
+		},
+		Alerts: []weather.Alert{},
 	}
 	coordinates := weather.Coordinates{Lat: 1.0, Lon: 2.0}
 	_, fc, err := c.GetWeather(coordinates)
@@ -254,6 +303,14 @@ func TestForecastFromGetWeather(t *testing.T) {
 	got := fc.Daily[0]
 	if !cmp.Equal(want, got) {
 		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestPrintForcastWithWrongOffset(t *testing.T) {
+	t.Parallel()
+	err := weather.PrintForecast(weather.Forecast{}, 9)
+	if err == nil {
+		t.Errorf("want error for wrong offset, but got nil")
 	}
 }
 

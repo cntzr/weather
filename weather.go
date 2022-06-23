@@ -38,14 +38,35 @@ type (
 	}
 
 	ForecastHourly struct {
-		Timestamp string
+		Day         string
+		Hour        string
+		Temperature float64
+		RainChance  float64
 	}
 
 	ForecastDaily struct {
-		Timestamp string
+		Day       string
 		Moonrise  string
 		Moonset   string
 		Moonphase Phase
+		Temp      DailyTempBenchmarks
+		Alerts    []Alert
+	}
+
+	DailyTempBenchmarks struct {
+		Max     float64
+		Min     float64
+		Morning float64
+		Day     float64
+		Evening float64
+		Night   float64
+	}
+
+	Alert struct {
+		Start       string
+		End         string
+		Name        string
+		Description string
 	}
 
 	Forecast struct {
@@ -71,13 +92,29 @@ type (
 			Wind_Deg   Direction
 		}
 		Hourly []struct {
-			DT int64
+			DT   int64
+			Temp float64
+			PoP  float64
 		}
 		Daily []struct {
 			DT         int64
 			Moonrise   int64
 			Moonset    int64
 			Moon_Phase Phase
+			Temp       struct {
+				Max   float64
+				Min   float64
+				Morn  float64
+				Day   float64
+				Eve   float64
+				Night float64
+			}
+			Alerts []struct {
+				Start       int64
+				End         int64
+				Name        string
+				Description string
+			}
 		}
 	}
 
@@ -160,20 +197,22 @@ func RunCLI() {
 	switch function {
 	case FunctionCurrent:
 		PrintCurrentConditions(conditions, forecast)
+	case FunctionToday:
+		PrintForecast(forecast, 0)
+	case FunctionTomorrow:
+		PrintForecast(forecast, 1)
+	case FunctionAfterTomorrow:
+		PrintForecast(forecast, 2)
 	case FunctionMoon:
 		PrintMoon(forecast)
-	default:
-		fmt.Println()
-		fmt.Println("This function isn't implemented yet. Please try it later again.")
-		fmt.Println()
+	case FunctionRain:
+		PrintRain(forecast)
+	case FunctionAlert:
+		PrintAlerts(forecast)
 	}
 	/*
 		fmt.Println("Hours")
 		for _, slot := range forecast.Hourly {
-			fmt.Println(slot.Timestamp)
-		}
-		fmt.Println("Days")
-		for _, slot := range forecast.Daily {
 			fmt.Println(slot.Timestamp)
 		}
 	*/
@@ -220,6 +259,12 @@ func ParseWeatherResponse(data []byte) (Conditions, Forecast, error) {
 	if len(resp.Current.Weather) < 1 {
 		return Conditions{}, Forecast{}, fmt.Errorf("invalid API response %s: want at least one Weather element", data)
 	}
+	if len(resp.Hourly) < 12 {
+		return Conditions{}, Forecast{}, fmt.Errorf("invalid API response %s: want at least some Hourly elements", data)
+	}
+	if len(resp.Daily) < 3 {
+		return Conditions{}, Forecast{}, fmt.Errorf("invalid API response %s: want at least Daily elements till after tomorrow", data)
+	}
 	conditions := Conditions{
 		Timestamp:     time.Unix(resp.Current.DT, 0).Format("02.01.2006 15:04 MST"),
 		Sunrise:       time.Unix(resp.Current.Sunrise, 0).Format("15:04"),
@@ -240,16 +285,37 @@ func ParseWeatherResponse(data []byte) (Conditions, Forecast, error) {
 	}
 	for _, slot := range resp.Hourly {
 		s := ForecastHourly{
-			Timestamp: time.Unix(slot.DT, 0).Format("02.01.2006 15:04"),
+			Day:         time.Unix(slot.DT, 0).Format("02.01.2006"),
+			Hour:        time.Unix(slot.DT, 0).Format("15:04"),
+			Temperature: slot.Temp,
+			RainChance:  slot.PoP * 100,
 		}
 		forecast.Hourly = append(forecast.Hourly, s)
 	}
 	for _, slot := range resp.Daily {
 		s := ForecastDaily{
-			Timestamp: time.Unix(slot.DT, 0).Format("02.01.2006"),
+			Day:       time.Unix(slot.DT, 0).Format("02.01.2006"),
 			Moonrise:  time.Unix(slot.Moonrise, 0).Format("15:04"),
 			Moonset:   time.Unix(slot.Moonset, 0).Format("15:04"),
 			Moonphase: slot.Moon_Phase,
+			Temp: DailyTempBenchmarks{
+				Max:     slot.Temp.Max,
+				Min:     slot.Temp.Min,
+				Morning: slot.Temp.Morn,
+				Day:     slot.Temp.Day,
+				Evening: slot.Temp.Eve,
+				Night:   slot.Temp.Night,
+			},
+			Alerts: []Alert{},
+		}
+		for _, a := range slot.Alerts {
+			alert := Alert{
+				Start:       time.Unix(a.Start, 0).Format("02.01.2006, 15:04"),
+				End:         time.Unix(a.End, 0).Format("02.01.2006, 15:04"),
+				Name:        a.Name,
+				Description: a.Description,
+			}
+			s.Alerts = append(s.Alerts, alert)
 		}
 		forecast.Daily = append(forecast.Daily, s)
 	}
@@ -273,39 +339,185 @@ func ParseGeoResponse(data []byte) (Coordinates, error) {
 }
 
 // PrintCurrentConditions ... output of the current weather conditions, perfect if you can't look out of your window
-func PrintCurrentConditions(conditions Conditions, forecast Forecast) {
+func PrintCurrentConditions(c Conditions, f Forecast) {
 	fmt.Println()
-	fmt.Println(conditions.Timestamp)
+	fmt.Println("Aktuelles Wetter vom " + c.Timestamp)
 	fmt.Println("-----------------------------------------------------")
-	fmt.Printf("Sonne: %s / %s\n", conditions.Sunrise, conditions.Sunset)
-	fmt.Printf("Mond: %s / %s, %s\n", forecast.Daily[0].Moonrise, forecast.Daily[0].Moonset, forecast.Daily[0].Moonphase.Description())
-	fmt.Printf("Beschreibung: %s\n", conditions.Summary)
-	fmt.Printf("Temperatur: %.1f °C, gefühlt %.1f °C\n", conditions.Temperature, conditions.FeelsLike)
-	fmt.Printf("Taupunkt: %.1f °C\n", conditions.DewPoint)
-	fmt.Printf("Luftdruck: %d hPa\n", conditions.Pressure)
-	fmt.Printf("Luftfeuchtigkeit: %d %%\n", conditions.Humidity)
-	fmt.Printf("Wind: %.0f km/h aus %s, in Böen %.0f km/h\n", conditions.WindSpeed.KmPerHour(), conditions.WindDirection.Direction(), conditions.WindGust.KmPerHour())
+	fmt.Printf("Sonne: %s / %s\n", c.Sunrise, c.Sunset)
+	fmt.Printf("Mond: %s / %s, %s\n", f.Daily[0].Moonrise, f.Daily[0].Moonset, f.Daily[0].Moonphase.Description())
+	fmt.Printf("Beschreibung: %s\n", c.Summary)
+	fmt.Printf("Temperatur: %.1f °C, gefühlt %.1f °C\n", c.Temperature, c.FeelsLike)
+	fmt.Printf("Taupunkt: %.1f °C\n", c.DewPoint)
+	fmt.Printf("Luftdruck: %d hPa\n", c.Pressure)
+	fmt.Printf("Luftfeuchtigkeit: %d %%\n", c.Humidity)
+	fmt.Printf("Wind: %.0f km/h aus %s, in Böen %.0f km/h\n", c.WindSpeed.KmPerHour(), c.WindDirection.Direction(), c.WindGust.KmPerHour())
 	fmt.Println()
+	if len(f.Daily[0].Alerts) > 0 {
+		for _, a := range f.Daily[0].Alerts {
+			fmt.Printf("%s von %s - %s\n", a.Name, a.Start, a.End)
+			fmt.Println(a.Description)
+			fmt.Println()
+		}
+	}
+}
+
+// PrintForecast ... output of forecast for today, tomorrow or the day after tomorrow
+func PrintForecast(f Forecast, offset int) error {
+	if offset < 0 || offset > 2 {
+		return fmt.Errorf("offset %d is out of range, should be 0, 1 or 2", offset)
+	}
+	fmt.Println()
+	fmt.Printf("Vorhersage für %s\n", f.Daily[offset].Day)
+	fmt.Println("-----------------------------------------------------")
+	fmt.Println("Temperaturen ...")
+	fmt.Printf("... min. %.0f °C, max. %.0f °C\n",
+		f.Daily[offset].Temp.Min,
+		f.Daily[offset].Temp.Max)
+	fmt.Printf("... morgens %.0f °C, mittags %.0f °C, abends %.0f °C und nachts %.0f °C.\n",
+		f.Daily[offset].Temp.Morning,
+		f.Daily[offset].Temp.Day,
+		f.Daily[offset].Temp.Evening,
+		f.Daily[offset].Temp.Night)
+	fmt.Println()
+	fmt.Println(GetRainyPeriods(f, offset))
+	fmt.Println()
+	if len(f.Daily[offset].Alerts) > 0 {
+		for _, a := range f.Daily[0].Alerts {
+			fmt.Printf("%s von %s - %s\n", a.Name, a.Start, a.End)
+			fmt.Println(a.Description)
+			fmt.Println()
+		}
+	}
+	return nil
 }
 
 // PrintMoon ... output of moonrise and moonset for next days, including the moon phases
-func PrintMoon(forecast Forecast) {
+func PrintMoon(f Forecast) {
 	fmt.Println()
 	fmt.Println("Mondauf-/untergang, Mondphase")
 	fmt.Println("-----------------------------------------------------")
 	lastDescription := ""
-	for _, day := range forecast.Daily {
+	for _, day := range f.Daily {
 		currentDescritption := day.Moonphase.Description()
 		if lastDescription != currentDescritption {
-			fmt.Printf("%s: %s - %s, %s\n", day.Timestamp, day.Moonrise, day.Moonset, day.Moonphase.Description())
+			fmt.Printf("%s: %s - %s, %s\n", day.Day, day.Moonrise, day.Moonset, day.Moonphase.Description())
 		} else {
-			fmt.Printf("%s: %s - %s\n", day.Timestamp, day.Moonrise, day.Moonset)
+			fmt.Printf("%s: %s - %s\n", day.Day, day.Moonrise, day.Moonset)
 		}
 		lastDescription = currentDescritption
 	}
 	fmt.Println()
 }
 
+// PrintRain ... perception of rain and snow for today and next days, including ascii graph
+func PrintRain(f Forecast) {
+	fmt.Println()
+	fmt.Printf("Niederschlag vom %s - %s\n", f.Daily[0].Day, f.Daily[2].Day)
+	fmt.Println("-----------------------------------------------------")
+	fmt.Printf("%s: %s\n", f.Daily[0].Day, GetRainyPeriods(f, 0))
+	fmt.Printf("%s: %s\n", f.Daily[1].Day, GetRainyPeriods(f, 1))
+	fmt.Printf("%s: %s\n", f.Daily[2].Day, GetRainyPeriods(f, 2))
+	fmt.Println()
+}
+
+// PrintAlerts ... alerts for today and the next days
+func PrintAlerts(f Forecast) {
+	fmt.Println()
+	fmt.Printf("Warnungen vom %s - %s\n", f.Daily[0].Day, f.Daily[2].Day)
+	fmt.Println("-----------------------------------------------------")
+	switch true {
+	case len(f.Daily[0].Alerts) > 0:
+		for _, a := range f.Daily[0].Alerts {
+			fmt.Printf("%s von %s - %s\n", a.Name, a.Start, a.End)
+			fmt.Println(a.Description)
+			fmt.Println()
+		}
+	case len(f.Daily[1].Alerts) > 0:
+		for _, a := range f.Daily[1].Alerts {
+			fmt.Printf("%s von %s - %s\n", a.Name, a.Start, a.End)
+			fmt.Println(a.Description)
+			fmt.Println()
+		}
+	case len(f.Daily[2].Alerts) > 0:
+		for _, a := range f.Daily[2].Alerts {
+			fmt.Printf("%s von %s - %s\n", a.Name, a.Start, a.End)
+			fmt.Println(a.Description)
+			fmt.Println()
+		}
+	default:
+		fmt.Println("Es liegen keine Warnungen vor.")
+	}
+	fmt.Println()
+}
+
+// GetGraphData ... delivers data collections for temperatures, wind speeds etc.
+func GetGraphData(f Forecast, key string, offset int) []float64 {
+	reference := f.Daily[offset].Day
+	values := []float64{}
+	for _, slot := range f.Hourly {
+		if slot.Day == reference {
+			if key == "Temp" {
+				values = append(values, slot.Temperature)
+			}
+		}
+	}
+	return values
+}
+
+// GetRainyPeriods ... filter for rainy periods
+func GetRainyPeriods(f Forecast, offset int) string {
+	reference := f.Daily[offset].Day
+	values := []string{}
+	itsRaining := ""
+	previousSlot := ""
+	for _, slot := range f.Hourly {
+		if slot.Day != reference {
+			continue
+		}
+		if slot.RainChance > 0 {
+			if itsRaining == "" {
+				itsRaining = slot.Hour
+			}
+			previousSlot = slot.Hour
+		} else {
+			if previousSlot != "" {
+				if itsRaining != previousSlot {
+					// period of more than 1 hour
+					itsRaining = "von " + itsRaining + " - " + previousSlot
+				} else {
+					// short period of 1 hour only
+					itsRaining = "um " + itsRaining
+				}
+				values = append(values, itsRaining)
+				itsRaining = ""
+				previousSlot = ""
+			}
+		}
+	}
+	// process hanging periods till midnight
+	if itsRaining != "" {
+		if itsRaining != previousSlot {
+			// period of more than 1 hour
+			itsRaining = "von " + itsRaining + " - " + previousSlot
+		} else {
+			// short period of 1 hour only
+			itsRaining = "um " + itsRaining
+		}
+
+		if itsRaining == "von 00:00 - 23:00" {
+			itsRaining = "den ganzen Tag über"
+		}
+		values = append(values, itsRaining)
+	}
+
+	result := "Es regnet nicht."
+	if len(values) > 0 {
+		result = "Es regnet " + strings.Join(values, ", ") + "."
+	}
+	return result
+}
+
+// GetTimestamp ... wrapper for time conversion and format
 func GetTimestamp(sec int64, format string) string {
 	return time.Unix(sec, 0).Format(format)
 }
