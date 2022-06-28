@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"weather"
 
+	"github.com/cntzr/weather"
 	"github.com/google/go-cmp/cmp"
 )
 
